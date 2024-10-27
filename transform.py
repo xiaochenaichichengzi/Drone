@@ -185,7 +185,7 @@ for epoch in range(num_epochs):
     if val_acc > best_val_acc:
         best_val_acc = val_acc
         best_train_log = f"Best Training Log:\n 训练 Loss: {train_loss:.4f}, 准确率: {train_acc:.4f}\n 验证 Loss: {val_loss:.4f}, 准确率: {val_acc:.4f}"
-        torch.save(model.state_dict(), 'best_multimodal_pose_transformer_model.pth')
+        torch.save(model.state_dict(), 'best_pose_model.pth')
         print('  保存最优模型')
 
 # 输出最佳的训练日志
