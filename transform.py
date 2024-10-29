@@ -7,7 +7,6 @@ import torch.optim as optim
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import StandardScaler
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-import torchvision.transforms as transforms
 
 # 自定义数据集类
 class MultiModalPoseDataset(Dataset):
@@ -48,11 +47,17 @@ class MultiModalPoseDataset(Dataset):
 
 # Transformer 模型定义
 class MultiModalPoseTransformerModel(nn.Module):
-    def __init__(self, num_classes, embed_dim=512, num_heads=8, num_layers=6, dropout=0.3):  # 增加 dropout
+    def __init__(self, num_classes, embed_dim=512, num_heads=8, num_layers=6, dropout=0.3):
         super(MultiModalPoseTransformerModel, self).__init__()
 
+        # 检查 embed_dim 是否能被 num_heads 整除，否则调整 embed_dim
+        if embed_dim % num_heads != 0:
+            embed_dim = num_heads * (embed_dim // num_heads)
+            print(f"Warning: embed_dim adjusted to {embed_dim} to be divisible by num_heads ({num_heads})")
+
         # 输入数据的维度变换
-        self.input_embedding = nn.Linear(3 * 17 * 2 * 3, embed_dim)
+        input_dim = 3 * 17 * 2 * 3  # 计算特征数
+        self.input_embedding = nn.Linear(input_dim, embed_dim)
 
         # Transformer Encoder
         encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, dropout=dropout, batch_first=True)
@@ -64,7 +69,7 @@ class MultiModalPoseTransformerModel(nn.Module):
         # 分类头
         self.fc = nn.Linear(embed_dim, num_classes)
 
-        self.dropout = nn.Dropout(p=dropout)  # 添加 Dropout
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -73,7 +78,7 @@ class MultiModalPoseTransformerModel(nn.Module):
         x = self.input_embedding(x)
         x = self.transformer_encoder(x)
         x = self.global_pool(x.permute(0, 2, 1)).squeeze(-1)
-        x = self.dropout(x)  # 在分类前应用 Dropout
+        x = self.dropout(x)
         x = self.fc(x)
 
         return x
@@ -84,7 +89,7 @@ train_joint_path = 'data/train_joint.npy'
 train_bone_path = 'data/train_bone.npy'
 train_motion_path = 'data/train_joint_motion.npy'
 train_label_path = 'data/train_label.npy'
-test_joint_path = 'data/test_joint_B.npy'
+
 # 创建数据集
 dataset = MultiModalPoseDataset(train_joint_path, train_bone_path, train_motion_path, train_label_path)
 
@@ -94,7 +99,7 @@ val_size = len(dataset) - train_size
 train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
 # 创建数据加载器
-batch_size = 64
+batch_size = 128
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -107,7 +112,7 @@ num_classes = len(np.unique(dataset.labels))
 model = MultiModalPoseTransformerModel(num_classes=num_classes).to(device)
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.0001)  # 尝试更小的学习率
+optimizer = optim.Adam(model.parameters(), lr=0.0005)
 
 # 学习率调度器
 scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True)
@@ -119,7 +124,7 @@ def train(model, loader, criterion, optimizer, device):
     all_preds = []
     all_labels = []
 
-    for batch_idx, (inputs, labels) in enumerate(loader):
+    for inputs, labels in loader:
         inputs = inputs.to(device)
         labels = labels.to(device)
 
@@ -147,7 +152,7 @@ def validate(model, loader, criterion, device):
     all_labels = []
 
     with torch.no_grad():
-        for batch_idx, (inputs, labels) in enumerate(loader):
+        for inputs, labels in loader:
             inputs = inputs.to(device)
             labels = labels.to(device)
 
@@ -166,9 +171,9 @@ def validate(model, loader, criterion, device):
 
 
 # 训练过程
-num_epochs = 20
+num_epochs = 40
 best_val_acc = 0.0
-best_train_log = None  # 记录最佳的训练日志
+best_train_log = None
 
 for epoch in range(num_epochs):
     print(f'\nEpoch {epoch + 1}/{num_epochs}:')
@@ -181,13 +186,13 @@ for epoch in range(num_epochs):
     # 更新学习率
     scheduler.step(val_loss)
 
-    # 如果当前验证准确率最好，则记录最佳日志
     if val_acc > best_val_acc:
         best_val_acc = val_acc
         best_train_log = f"Best Training Log:\n 训练 Loss: {train_loss:.4f}, 准确率: {train_acc:.4f}\n 验证 Loss: {val_loss:.4f}, 准确率: {val_acc:.4f}"
-        torch.save(model.state_dict(), 'best_pose_model.pth')
+        torch.save(model.state_dict(), 'best_multimodal_pose_transformer_model.pth')
         print('  保存最优模型')
 
 # 输出最佳的训练日志
-print('\n' + best_train_log)
+if best_train_log:
+    print('\n' + best_train_log)
 print('训练完成')
